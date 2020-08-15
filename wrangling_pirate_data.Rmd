@@ -1,0 +1,638 @@
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE, fig.showtext = T, fig.retina = 1)
+```
+
+Importing libraries that I'm interest in
+```{r prep_lib}
+library(tidyverse)
+library(lubridate)
+library(psych)
+library(stringr)
+library(magrittr)
+library(DataExplorer)
+library(gridExtra)
+set.seed(NULL)
+```
+
+I'm starting by setting my working directory to where my data are saved
+then reading in my data
+```{r data_readin}
+df_pirate <- read_csv("~/Documents/data_science/data_science_practice/R/pirates_clustering/df_pirate.csv")
+```
+
+Looking at the column names to see if their format is uniform/what i like
+```{r colnames_check}
+colnames(df_pirate)
+```
+
+I don't like these column names
+Maybe it's because I'm dyslectic but it's easier for me when words are separated 
+with an underscore
+overwriting the column names
+```{r colnames_overwrite}
+colnames(df_pirate) <- tolower(gsub(
+  "([a-z])([A-Z])",
+  "\\1_\\2",
+  gsub("([a-z])([1-9])", "\\1_\\2", colnames(df_pirate))
+))
+  
+colnames(df_pirate)
+```
+
+Examing the data
+looking at the first 5 rows with the head function
+nothing really jumps out at me just yet, except that I know that pirate_level 
+should be an ordinal variable, crew is a factor (the numbers are not a 
+meaningful scale like temperature, and are actually a lot more like names and categories), 
+and there are some NAs
+```{r df_head}
+head(df_pirate)
+```
+
+Examining the structure of the columns
+Nothing new jumps out here, but it is a good reminded that eventually we will 
+need to dummy code our non-continuous variables--which are our factor variables--
+like crew, and day_or_night. For example, if a variable is "likes cats" with 
+the levels "all cats", "some cats", "no cats", I can create 3 columns--3 new 
+variables--called "likes all cats", "likes no cats", "likes some cats", and 
+give each row (which represents a person) a 1 if it's true about them, and 0 
+if it isn't). We can then often run these columns through algorithms, since I 
+will have converted my words to numbers, and can now to math with them 
+```{r df_str}
+str(df_pirate)
+```
+```{r factor_order_fix}
+df_pirate %<>%
+  mutate(across(c(crew, state, day_or_night, occupation), as.factor),
+         pirate_level = ordered(pirate_level))
+
+str(df_pirate)
+```
+
+Is there only one row per id, 
+or does a CC appear in more than one row?
+```{r rows_id_check}
+df_pirate %>%
+ dplyr::select(pirate_id) %>%
+  group_by(pirate_id) %>%
+  count() %>%
+ dplyr::filter(n > 1)
+```
+Here we see the answer is yes, specifically 8 rows. 
+I want to examine those rows 
+to see if they're just identical duplicates or something else
+
+```{r row_id_check}
+df_pirate %>%
+ dplyr::filter(pirate_id == 8274)
+```
+tbh since it was just a single person out of 8274 was more comfortable 
+with introducing bias into my data by removing this one person than guessing which 
+parts of each row are accurate if I can't find the ground truth to that question
+Idplyr::filtered them out, although right now it's irrelevant
+```{r rows_id_remove}
+df_pirate <- 
+  df_pirate %>%
+   dplyr::filter(pirate_id != 8274)
+```
+
+I want to eyeball the levels of the non-numeric/datetime features
+Applying the unique function to the factor variables to get the distinct levels
+There are NAs in all of them
+I think if we have enough data as a first step we should focus on volunteers only
+from the US
+```{r eyeball_unique_levels}
+lapply(
+  (df_pirate %>%
+ dplyr::select_if(is.factor)), 
+  (function(x) unique(x))
+  )
+```
+
+```{r}
+df_pirate %>%
+ dplyr::filter(str_detect(state, pattern = '[:digit:]')) %>%
+  count()
+```
+
+
+```{r}
+df_pirate %>%
+ dplyr::filter(str_detect(state, pattern = '[:punct:]')) 
+
+#this is just 4 rows so I actually think that instead of taking the chance that 
+#they are american states with a period rather than a total mistake
+#I'll probably just delete them
+#This also brought up the interesting observation that some NAs don't seem to be
+#real NAs but rather a string
+#I do have limited time in this data challenge though and it's just two more rows
+#like this so I'll just delete them as well
+#lol for the fake NAs
+```
+
+There are 637 NA rows according to the output below
+I think it's worth removing them
+If I had a bunch of time it might be worth playing around with creating a model to
+predict if and which state the NA belongs to
+but seeing that it is a pretty small percent compared to the size of the data
+I don't feel worried about removing it
+and tbh considering the size of the data i'd probably prefer to avoid the bias of
+imputing incorrectly and just delete it
+```{r count_state_na}
+df_pirate %>%
+ dplyr::filter(is.na(state)) %>%
+  count()
+```
+
+
+```{r}
+df_pirate_states_words <- 
+  df_pirate %>%
+ dplyr::filter(
+    (!str_detect(state, pattern = '[:punct:]|[:digit:]')))
+
+#sanity checks
+df_pirate_states_words %>%
+ dplyr::filter(str_detect(state, pattern = '[:punct:]')) %>%
+  count()
+
+df_pirate_states_words %>%
+ dplyr::filter(str_detect(state, pattern = '[:digit:]')) %>%
+  count() 
+
+df_pirate_states_words %>%
+ dplyr::filter(is.na(state)) %>%
+  count() 
+
+```
+
+To figure out which of the states to keep without doing it manually I'm first
+creating a list of all the states and their abbreviations
+```{r states_list}
+#####
+states <- "Alabama	AL
+Alaska	AK
+Arizona	AZ
+Arkansas	AR
+California	CA
+Colorado	CO
+Connecticut	CT
+Delaware	DE
+Florida	FL
+Georgia	GA
+Hawaii	HI
+Idaho	ID
+Illinois	IL
+Indiana	IN
+Iowa	IA
+Kansas	KS
+Kentucky	KY
+Louisiana	LA
+Maine	ME
+Maryland	MD
+Massachusetts	MA
+Michigan	MI
+Minnesota	MN
+Mississippi	MS
+Missouri	MO
+Montana	MT
+Nebraska	NE
+Nevada	NV
+New Hampshire	NH
+New Jersey	NJ
+New Mexico	NM
+New York	NY
+North Carolina	NC
+North Dakota	ND
+Ohio	OH
+Oklahoma	OK
+Oregon	OR
+Pennsylvania	PA
+Rhode Island	RI
+South Carolina	SC
+South Dakota	SD
+Tennessee	TN
+Texas	TX
+Utah	UT
+Vermont	VT
+Virginia	VA
+Washington	WA
+West Virginia	WV
+Wisconsin	WI
+Wyoming	WY
+District of Columbia	DC"
+#####
+#replacing the \r \t \n in the states string with a space
+#then taking that and putting a comma before and after wherever we have 
+#two capital letters
+states_str_cleaned <- 
+  gsub("([A-Z])([A-Z])", 
+       ",\\1\\2,", #adding commas before and after those two pattern matching 
+       #things we found
+       (gsub("[\r\n\t]", 
+             " ", 
+             states)))
+#I'll also strip spaces before and after commas
+states_str_cleaned <- 
+  str_to_upper(gsub(", ",
+       ",",
+       (gsub(" ,",
+             ",",
+             states_str_cleaned))))
+#splitting the string on the commas
+#In lists [[]] are used to select a single element
+#here the strsplit is saving all the splits in a single element
+#so we want to access that element so that each of the bits that are saved in there 
+#will be saved in our list as individual elements
+#Otherwise without that if we compare state to this list it will always be false
+#because all these list elements are together in a single element
+states_list <-
+  as.list(strsplit(states_str_cleaned, split = ",")[[1]])
+
+states_list
+
+```
+
+I'm next filtering the df based on whether the states column values is in
+my list and seeing how many rows I'll lose as a result
+It looks like it's just 55 out of like 32k so it's really not a big deal
+to lose them
+```{r}
+df_pirate_states_words %>%
+  count() -
+  df_pirate_states_words %>%
+ dplyr::filter(state %in% states_list) %>%
+  count()
+```
+
+
+Eyeballing that removing states by filtering through the list is doing 
+what I expect it to do & it looks reasonable
+```{r eyeball_removed_kept_states}
+#looking at states in states list and state
+df_ctl_states_words %>%
+ dplyr::select(state) %>%
+ dplyr::filter(state %in% states_list) %>% 
+  distinct() %>% 
+  View()
+#looking as states only in state and not in list
+df_ctl_states_words %>%
+ dplyr::select(state) %>%
+ dplyr::filter(!state %in% states_list) %>% 
+  distinct() %>% 
+  View()
+#I guess I could keep the person with the state listed as US and put their 
+#state as NA, but I'm going to just let them go and be consistent with the methods
+#for now
+```
+
+```{r}
+df_pirate_states <- 
+  df_pirate_states_words %>%
+ dplyr::filter(state %in% states_list)
+```
+
+
+I want all the states to have the same format
+In python I'd use a dictionary as a hashtable
+I've never done this in R that I can remember
+It seems like using actual hash tables in R can take a very long time to create
+I think it'll be at least as fast to create a table that has two columns
+of a key and table, and compare each state name and convert it into the value that 
+will be the abbreviation if it's in the full/key format
+```{r}
+states_str_cleaned2 <- 
+  gsub("([A-Z])([A-Z])", 
+       ",\\1\\2", #adding commas before and after those two pattern matching 
+       #things we found
+       (gsub("[\r\t]", 
+             " ", 
+             states)))
+#I'll also strip spaces before and after commas
+states_str_cleaned2 <- 
+  str_to_upper(gsub(", ",
+       ",",
+       (gsub(" ,",
+             ",",
+             states_str_cleaned2))))
+
+states_list2 <- as.list(strsplit((strsplit(states_str_cleaned2, split = "\n")[[1]]), split = ","))
+#so I now have two items in each part of the list 
+#kinda like a hashtable or dictionary in python
+
+df_states_list1 <- as.data.frame(states_list2)
+  #setting the dataframe columns to have the states' full names
+colnames(df_states_list1) <- df_states_list1[1,]
+#deleting the first row since those names are now the column names
+df_states_list1 <- df_states_list1[-1,]
+#converting dataframe format to long
+#with a key column that has the full state name, and value that's the abbreviation
+df_states_list2 <- 
+  gather(df_states_list1, "key", "value")
+
+```
+
+
+```{r}
+df_pirate_states$state <-
+  modify( #like map, but return the same type of data type going in
+ df_pirate_states$state, #the data we want the function to operate on
+  (function(x) #creating an anonymous function
+    ifelse( 
+      (x %in% df_states_list2$key), #if the state is in the df_states_list2 key column
+      (df_states_list2$value[ #pull the value with this index from df_states_list2
+        (which((df_states_list2$key == x))) #the index is the one where the key matches that full state name
+        ]), 
+      as.character(x) #if the state isn't in key column it means it's already abbreviated, so just keep that name
+    )))
+
+
+unique(df_pirate_states$state)
+#NJ NY CT MD AK MA TX CA VA OH MO AL WV MI AZ PA MN FL NV WA NC OK CO IL LA GA NH TN ME IA IN DE KS SC KY UT WI SD OR VT ND RI NE MS HI NM AR MT ID WY DC
+df_pirate_states %>%dplyr::select(state) %>% distinct() %>% count() #51 because 50 + DC
+
+```
+
+I want the states to be lower case
+```{r factor_var_names_change}
+df_pirate_states %<>%
+  mutate(state = tolower(state),
+         occupation = tolower(occupation))
+
+lapply(
+  (df_pirate_states %>%
+ dplyr::select(state, occupation)), 
+  (function(x) unique(x))
+  )
+```
+
+```{r lvl_check}
+df_pirate_lvlcheck <- 
+  df_pirate_states %>%
+    mutate(level_matches_hours =
+             case_when(
+               ((.$mission_count < 20 &
+                   .$pirate_level == 1) |
+                  ((.$mission_count >= 20 &
+                      .$mission_count < 30) &
+                     .$pirate_level == 2) |
+                  ((.$mission_count >= 30 &
+                      .$mission_count < 60) &
+                     .$pirate_level == 3) |
+                  ((.$mission_count >= 60 &
+                      .$mission_count < 110) &
+                     .$pirate_level == 4) |
+                  ((.$mission_count >= 110 &
+                      .$mission_count < 260) &
+                     .$pirate_level == 5
+                  ) |
+                  ((.$mission_count >= 260 &
+                      .$mission_count < 510) &
+                     .$pirate_level == 6
+                  ) |
+                  ((.$mission_count >= 510 &
+                      .$mission_count < 1010) &
+                     .$pirate_level == 7
+                  ) |
+                  ((.$mission_count >= 1010 &
+                      .$mission_count < 2510) &
+                     .$pirate_level == 8
+                  ) |
+                  ((.$mission_count >= 2510 &
+                      .$mission_count < 5010) &
+                     .$pirate_level == 9
+                  ) |
+                  ((.$mission_count >= 5010 &
+                      .$mission_count < 10010) &
+                     .$pirate_level == 10
+                  ) |
+                  ((.$mission_count >= 10010) &
+                     .$pirate_level == 11) |
+                  (((.$mission_count == 0) |
+                      (
+                        is.na(.$mission_count) == TRUE
+                      )) &
+                     .$pirate_level == 0)
+               ) ~ "match",
+               TRUE ~ "no_match"
+             )) %>%
+   dplyr::filter(level_matches_hours == 'no_match')
+
+View(df_pirate_lvlcheck)
+
+```
+
+
+```{r count_levels}
+df_pirate_states %>%
+ dplyr::select(pirate_level) %>%
+  group_by(pirate_level) %>%
+  count()
+```
+So starting level 7ish there are way less people that made it that far
+which is logical, but kinda makes me hesitant to dump folx probably at levels
+8 & 9, depending on how many of those there are, but I'll check and tbh
+probably dump them because I don't have the resources to contact DS/DE to see
+what that source of confusion might be, and I'd rather err in favor of the bias
+of dumping data than deciding which column is the true one. IRL I'd like to try
+and run the model with and without the noisy data if I can't figure out which
+is the true value, because usually those are pretty similar and then it doesn't
+matter; but if they're really different than we have a problem and we need to 
+dig deeper. 
+```{r count_wrong_levels}
+df_pirate_lvlcheck %>%
+ dplyr::select(pirate_level) %>%
+  group_by(pirate_level) %>%
+  count()
+```
+So it's like half the people of level 9, which makes me very uncomfortable to
+just dump them. However, I really don't have the time to start checking every case
+I don't think, to understand better what's going on. If I have time I'll come back to
+it, but for now I'm going to dump them.
+FWIW 5 of them have missing state data, which I think is important
+and will discuss below, and some are missing occupation, so I think I'm okay with
+dumping even the level 9 folx for now.
+``` {r dump_wrong_level}
+df_pirate_states %<>%
+ dplyr::filter(!pirate_id %in% df_pirate_lvlcheck$pirate_id) #filtering by keeping ids not in the mismatched df
+```
+
+
+For my target--whether the pirate churned out of piracy--I am going to look at whether the last time a pirate went on a mission was more than 60 days ago. If the answer to that is yes, they will be considered churned. This means that I should also probably dump all the data from people who did not have their first mission at least 61 days ago, because I would need 60 days to pass in order to determine whether they churned
+```{r}
+df_pirate_eng <-
+  df_pirate_states %>%
+  #is the time difference between anyone's most recent mission date and that person's first mission date over 60 days? If yes, keep them, because they will have had the time to churn
+  filter(as.integer(difftime(
+    max(mission_last, na.rm = TRUE), mission_1, units = "days"
+  )) > 61) %>%
+  #is the time difference between anyone's most recent mission date and that person's most recent mission date over or equal to 60 days? If yes, it means we know that at least 60 days went by without that person going on a mission, which means they churned
+  mutate(churned =
+           as.factor(ifelse(
+             (as.double(round(
+               difftime(max(mission_last, na.rm = TRUE), mission_last, units = "days"), digits = 3
+             )) >= 60),
+             "churned",
+             "not_churned"
+           )))
+
+```
+
+Other things I want to do include finding the last month someone went on a mission;
+Descritizing age. Ideally, I'd take the time to plot everything and find what are meaningful cut off points relative to everything else, but I'm just going with what I think is logical here for brevity's sake;
+For every week the person hadn't yet churned, how many hours of missions, on average, did that person participate in during that week;
+
+```{r}
+df_pirate_eng %<>%
+  mutate(
+    month_last_mission = as.factor(month(mission_last)),
+    age_groups = case_when(
+      age < 23 ~ "age_18_22",
+      (age > 22 &
+         age < 26) ~ "age_23_25",
+      (age > 25 &
+         age < 31) ~ "age_26_30",
+      (age > 30 &
+         age < 40) ~ "age_31_49",
+      (age > 39 &
+         age < 51) ~ "age_40_50",
+      (age > 50 &
+         age < 99) ~ "age_51_65",
+      (age > 65) ~ "age_66_plus"
+    ),
+    mission_hours_per_week = mission_hours / as.double(round(
+      difftime(mission_last, mission_1, units = "weeks"), digits = 3
+    ))
+  )
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+Looking at NAs
+NAs for the non-numeric variables don't look too high
+kinda high for occupation maybe
+
+looking as NA percentages for the columns using dataexplorer
+It's unfortunate that the two variables that we mentioned as possibilities for 
+important predictors/predictors we care about have the highest NAs
+```{r}
+plot_missing(df_pirate_states) #%>% 
+             # dplyr::filter(started_30d_or_more_ago == "more_30"))
+```
+Mostly not too bad
+
+dataexplorer library
+```{r dataexplorer_facvars_barplot}
+options(repr.plot.width=16, repr.plot.height=16)
+plot_bar((df_pirate_states %>%
+          dplyr::select_if(
+             funs(is.factor(.) | is.character(.)
+                  )
+             )), maxcat = 60
+         )
+#i forgot how ugly this was
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
