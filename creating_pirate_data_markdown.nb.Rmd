@@ -1,0 +1,710 @@
+---
+title: "creating_pirate_data"
+author: "aria_fredman"
+date: "8/18/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+I want to create a dataset with attributes of fictional pirates. 
+
+Note that I am aware that this article has a ridiculous premise, and I did so because producing this type of content (that is, demonstrating that I can do data science, not data science with silly stories) while job hunting is important for visibility (plus I remember it so much better after writing about it), but at some point it is more fun if I let some silliness in; and if I can add some fun to my life while job hunting during a pandemic I am going to seize opportunity. 
+
+It's also high time (or is it high tide?) someone wrote a data science blog post filled with terrible pirate puns and R code. Please note that these data are fictional, and do not come from any real company. I think of this article both as a portfolio and instructional piece, and therefor I think that the validity of these data are far less important compared to the code, and what I show that we can learn from potential findings.
+
+The scenario I'll be working with for all of the parts of this exercise is as follows: Imagine you discovered the true negative correlation between number of pirates in the world, and global warming. Also imagine that you are unfamiliar with the idea that while correlation might be causation, it might not be. If that was the case, I would recommend you watch the short talk I gave on the topic at a recent data science conference, because we would not want you coming to the erroneous conclusion that you can fight global warming by getting volunteers to take up piracy.
+
+Now imagine that you did not watch my talk, came to the erroneous conclusion, and have started a non-profit promoting piracy for volunteers. Unfortunately (for you; the rest of us will find your pirate woos quite lucky), despite training your pirate volunteers, you are finding that churn is a real problem, and you would like to understand it better, so that you can create interventions to increase pirate retention. To clarify, you are focusing your investigation on the pirates that quit out of their own volition, and not those who died in battle.
+
+You only recently understood the value of continuous listening, and ongoing feedback from your volunteers, but have not yet had the chance to implement such a program within your organization. You also do not have any qualitative data, which is unfortunate, and it is often what we need to understand WHY people are doing what they are doing; quantitative research tends to be much better at explaining WHAT people are doing. Since you need some actionable insights despite not have the luxury of collecting more data, you turn to the data that you do have, and to your favorite pirate coding language: R.
+
+Since this is the first part in the series, we will first create the data that we will analyze in subsequent parts. We want to end up with 13 columns:
+1) First mission date
+2) Last mission date
+3) Crew number (which is assigned at the start of the volunteering)
+4) Pirate ID
+5) Mission count of how many missions were completed
+6) The level the pirate reached, which is based on how many missions were completed
+7) Age
+8) Occupation, with options being student, working, retired, or other
+9) Whether there is a preference for day missions, night missions, or both
+10) A satisfaction rating, which is given by other crew members post mission, and then averaged
+11) What US state the pirate hails from
+12) Whether any of the pirate's crew members died during a mission
+
+
+We need to start by loading the libraries we'll be using during this exercise 
+```{r loading_libraries, results="hide", warning=FALSE, message=FALSE}
+library(tidyverse)
+library(lubridate)
+library(psych)
+library(stringr)
+library(magrittr)
+library(DataExplorer)
+```
+
+We also want to set a seed so that we can all create replicable data, and get the same results
+```{r setting_seed}
+set.seed(45665)
+```
+
+Let's start with creating the 1st column, which is the date of the first mission. We want it to be some time between '2010/01/01' and '2020/08/15', but limit the dates to be only on the first of each month. Therefore, we create a sequence between those dates (and make sure to specify that the strings should be treated as dates), specifying that we only want one date per month. We then randomly sample those dates so we have a vector that is 30k dates long, and make a column out of all those dates. Note that we have to specify that we want to sample the dates with replacement, because we want a column 30k variables long, but are only providing 128 dates. Therefore, we obviously need dates to appear more than once, and need to replace every date we pick back into the pool of dates that we are picking from, so that we have the ability to choose it more than once.
+```{r mission1_c}
+Mission1 <-
+  c(sample(seq(
+    as.Date('2010/01/01'), as.Date('2020/08/15'), by = "month"
+  ), size = 30000, replace = TRUE))
+```
+
+For our 2nd column, we will create a column with the date of the last mission. To make sure that the last date is after the first date, and does not come before it, I will start by making the last date the 1st date, and then add a certain amount of days to it, so that the two dates are not identical. This, however, will result in many people having identical start and end dates, and I would like the end dates to vary more. To increase the variability between people, I'll add a random number of days between 0 and 4k to each person's end date. To get a random number for each pirate, I will first create a variable that is 30k integers long of random numbers between 0 and 4000 (and once again we need the replace parameter set to TRUE, because we need 30k, when the range of 0 to 4000 is much less than that, so we need to sample with replacement).
+```{r random_v_0_4000}
+numadd <- as.integer(sample(0:4000, size = 30000, replace = TRUE))
+```
+
+I then add this number of days to the first date. If the resulting date is earlier than 08/16 (which I want to be my latest date), I keep the new end date as the old end date + the random number, otherwise I force it to be 08/15.
+```{r missionlast_c}
+missionLast <-
+  ymd(ifelse((as.character(Mission1 + numadd)) < "2020-08-16",
+             (as.character(Mission1 + numadd)),
+             "2020-08-15"))
+```
+
+My problem now though is that I have too many dates that are 08/15, and I would like fewer of those and to increase the variance of the final end dates. To increase the variance I now want to subtract a random number of days from each final date, somewhere between 0 and 65. This leads me to create another variable with 30k random numbers, this time between 0 and 65.
+```{r random_v_0_65}
+numadd2 <- as.integer(sample(0:65, size = 30000, replace = TRUE))
+```
+
+I check to see whether the last date is not 08/15, or if it is 08/15 but subtracting the random number from it would then make it earlier than the first date. If either of those conditions are met, I leave the final date as is. Otherwise, I subtract the random number from the final date.
+```{r missionlast_edit}
+missionLast <- ymd(ifelse(
+  (as.character(missionLast) != "2020-08-15") |
+    ((
+      as.character(missionLast) == "2020-08-15"
+    ) & (
+      as.character(missionLast - numadd2) < Mission1
+    )),
+  as.character(missionLast),
+  as.character(missionLast - numadd2)
+))
+```
+
+I now combine the two column dates together in a dataframe, and arrange it by the first mission date.
+```{r create_misions_df}
+pirates <-
+  data.frame(Mission1, missionLast) %>%
+  arrange(Mission1)
+```
+
+I run a quick sanity check to confirm that I don't have any cases where the last date comes before the first date. If I don't have any then I should product 0 rows with this filtering, which is what I find.
+```{r missionlast_sanity_check}
+pirates %>% 
+  filter(missionLast < Mission1)
+```
+
+I also want to confirm that I have increased variability and to not have too many final 08/15 date cases by creating an additional variable that is a 1 if the person's final date was 08/15, and 0 if it was not, and then counting how many 0s and 1s I have, by just counting the rows after grouping by that new variable. We can see that we do not have too many people with 08/15 date as their final date.
+```{r missionlast_sanity_check2}
+pirates %>%
+  mutate(date_0815 =
+           ifelse(as.character(missionLast) == "2020-08-15", 1, 0)) %>%
+  group_by(date_0815) %>% summarize(n = n())
+```
+
+I also want to know which crew each pirate is part of. Each group of pirates that started on the same date will be part of the same crew. To create the crews I'm ranking the dates and assigning crew names by rank.
+```{r crew_c}
+pirates$Crew <- 
+  dense_rank(pirates$Mission1)
+```
+
+Next, I want to give each pirate a unique id, which in effect will just be the row numbers.
+```{r id_c}
+pirates %<>% 
+  mutate(pirateId = 1:30000)
+```
+
+To Create a variable of how many missions were completed I start by finding how many days the person was active by calculating the difference in days between their first and last mission dates, then dividing that number by 30 and rounding it so about a mission a month.
+```{r missioncount_c}
+pirates$missionCount <-
+  round((as.integer(
+    difftime(pirates$missionLast, pirates$Mission1, units = "days")
+  )) / 30)
+```
+
+However, I want to increase variability a little bit, which is why I am going to again create a vector of random numbers--this time they'll be between -2 and 2--and then add that vector to the mission counts variable so long as that number does not result in a negative number, in which case I'll set it to 1.
+```{r random_v_neg2_2_missioncount_edit}
+numadd3 <- as.integer(sample(-2:2, size = 30000, replace = TRUE))
+pirates$missionCount <-
+  ifelse(pirates$missionCount + numadd3 < 0,
+         1,
+         pirates$missionCount + numadd3)
+```
+
+I now run a quick anity check to see if I have any negative mission counts, and see that I do not.
+```{r missioncount_sanity_check}
+pirates %>% 
+  filter(missionCount < 0) %>% 
+  count()
+```
+
+I'm going to assume that each mission takes 6 hours, plus or minus 5 (so between 1 and 11). Therefore, to create a variable of how many hours a person have been volunteering for, I'll take the number of missions that they have been on, multiply it by 6, and then add to this product a number from a vector that is full of randomly
+generated numbers between -5 and 5. However, I only do this if adding that number doesn't result in a negative number (negative volunteer hours does not make sense). If it does result in a negative number I'll assign mission hours to 1.
+```{r random_v_neg5_5_missionhours_c}
+numadd4 <- 
+  as.integer(sample(-5:5, size = 30000, replace = TRUE))
+
+pirates$missionHours <- 
+  ifelse((pirates$missionCount * 6) + numadd4 < 0,
+         1,
+         (pirates$missionCount * 6) + numadd4)
+```
+
+Similar to above, a quick sanity check to confirm that we don't have any negative mission hours
+```{r missionhours_sanity_check}
+pirates %>% 
+  filter(missionHours < 0)
+```
+
+I also want to give pirate levels based on how many missions they have accomplished. If they accomplished:
+1) up to 10 missions they'll be at level 1
+2) 11 to 30 level 2
+3) 31 to 50 level 3
+4) 51 to 80 level 4
+5) 81 to 120 level 5
+6) over 120 level 6
+I will use case_when within mutate to create this variable that is constructed with a handful of rules.
+```{r lvl_c}
+pirates %<>%
+  mutate(pirateLevel =
+           case_when(
+             .$missionCount <= 10 ~ 1,
+             (.$missionCount > 10 &
+                .$missionCount < 31) ~ 2,
+             (.$missionCount > 30 &
+                .$missionCount < 51) ~ 3,
+             (.$missionCount > 50 &
+                .$missionCount < 81) ~ 4,
+             (.$missionCount > 80 &
+                .$missionCount < 121) ~ 5,
+             .$missionCount > 120 ~ 6
+           ))
+```
+
+I do want to mess up the accuracy of pirateLevel a little bit, so that we can investigate it in the data wrangling blog post. The first step to doing this is creating a vector that is 0 91% of the time, and 1 9% of the time
+```{r lvl_edit_v}
+change_lvl <-
+  sample(c(0, 1),
+         nrow(pirates),
+         replace = TRUE,
+         prob = c(0.91, 0.01))
+```
+
+Then every time it's 1 I will add a level to the assigned level, but leave the pirate level accurate and as-is when the variable is 1. This way, I will only mess up 9% of the levels.
+```{r lvl_edit}
+pirates %<>%
+  mutate(pirateLevel = 
+           ifelse(change_lvl == 0, pirateLevel, pirateLevel + 1))
+```
+
+I am using the which function to get the index of the first messed up level. I then once subtract 1 from it, and once add 1 to it, so that I can pull the row before it, it, and after it, using bracket subsetting notation. I can now look at the levels and make sure only the middle one is wrong as a sanity check.
+```{r lvl_sanity_check1}
+pirates[(which(change_lvl == 1)[1]-1):(which(change_lvl == 1)[1]+1), ]
+```
+The same sanity check as above, but looking at the index of the second messed up level.
+```{r lvl_sanity_check2}
+pirates[(which(change_lvl == 1)[2]-1):(which(change_lvl == 1)[2]+1), ]
+```
+
+To create the age variable I'm making 3 vectors and meshing them together. One of those is 15k long with random numbers between 18 and 30; the second is 10k with random numbers between 31 and 55; and the third is 5k with random numbers between 56 and 75. I then resample that meshed-up vector without replacement, so that I get all the ages I already created, but I get them in random order in the dataframe, so that I do not have ages strongly correlated with start dates.
+```{r age_c}
+pirates$age <-
+  sample((c(
+    as.integer(sample(
+      18:30, size = 15000, replace = TRUE
+    )),
+    as.integer(sample(
+      31:55, size = 10000, replace = TRUE
+    )),
+    as.integer(sample(
+      56:75, size = 5000, replace = TRUE
+    ))
+  )), size = 30000, replace = FALSE)
+```
+
+For the occupation variable, I want all the people to be assigned an occupation based on age, and so I turn to case_when again, and make the people under 22 students,
+non-students under 65 working, and the rest retired.
+```{r occupation_c}
+pirates %<>%
+  mutate(Occupation =
+           case_when(
+             age < 22 ~ "Student",
+             (age > 21) & (age < 65) ~ "Working",
+             TRUE ~ "Retired"
+           ))
+```
+
+However, I want to add some variance to those occupation - age combos. To do that I am first choosing from the IDs associated with retired or student 20% random IDs that I will eventually convert to working occupation. I use pull to pull those IDs into a vector.
+```{r ids_to_working}
+ids_to_working <-
+  pirates %>%
+  filter(Occupation == "Retired" |
+           Occupation == "Student") %>%
+  select(pirateId) %>%
+  slice_sample(prop = 0.2) %>% 
+  pull()
+```
+I am also selecting 11% those between age 40 and 65--that will be working--for early retirement.
+```{r ids_to_retired}
+ids_to_retired <-
+  pirates %>%
+  filter(age > 40 & age < 65) %>%
+  select(pirateId) %>%
+  slice_sample(prop = 0.11) %>% 
+  pull()
+```
+Then a random 10% of those who aren't students, or in either of the above ID lists to, convert to student
+```{r ids_to_student}
+ids_to_student <-
+  pirates %>%
+  filter((Occupation != "Student") &
+           (!pirateId %in% ids_to_retired) &
+           (!pirateId %in% ids_to_working)
+  ) %>%
+  select(pirateId) %>%
+  slice_sample(prop = 0.1) %>%
+  pull()
+```
+Finally, I select 12% of everyone who is not in any of the above groups to convert to other occupation type.
+```{r ids_to_other}
+ids_to_other <-
+  pirates %>%
+  filter((!pirateId %in% ids_to_student) &
+           (!pirateId %in% ids_to_retired) &
+           (!pirateId %in% ids_to_working)
+  ) %>%
+  select(pirateId) %>%
+  slice_sample(prop = 0.12) %>%
+  pull()
+```
+
+The convert all the occupations I specify in a case_when that any occupation whose line has an: 
+1) id in the working list should be converted to working
+2) id in the retired list should be converted to retired
+3) id in the student list should be converted to student
+4) id in the other list should be converted to other
+And all other IDs just retrain their previous occupation
+```{r occupation_edit}
+pirates %<>%
+  mutate(
+    Occupation =
+      case_when(
+        pirateId %in% ids_to_working ~ "Working",
+        pirateId %in% ids_to_retired ~ "Retired",
+        pirateId %in% ids_to_student ~ "Student",
+        pirateId %in% ids_to_other ~ "Other",
+        TRUE ~ Occupation
+      )
+  )
+```
+I also want to run a small sanity check where I am eyeballing the rows in the dataframe where the ids are in the student id list, because originally they would not have been students, and so I want to see if they're all students now. Buy asking for counts by occupation, I see that I only have students in that group, so they were all converted as expected.
+```{r occupation_change_sanity_check}
+pirates %>%
+  filter(pirateId %in% ids_to_student) %>%
+  group_by(Occupation) %>%
+  count()
+```
+
+Similar to above, I am selecting random ids to create my column specify if someone cares about pirating during a certain time of day. I first pull random 70% IDs of anyone who isn't retired, to make them into night pirates
+```{r ids_to_night}
+ids_to_night <-
+  pirates %>%
+  filter(Occupation == "Working" |
+           Occupation == "Student" |
+           Occupation == "Other") %>%
+  select(pirateId) %>%
+  slice_sample(prop = 0.70) %>% 
+  pull()
+```
+I then select random 70% of the remaining IDs to turn them into day pirates
+```{r ids_to_day}
+ids_to_day <-
+  pirates %>%
+  filter(!pirateId %in% ids_to_night) %>%
+  select(pirateId) %>%
+  slice_sample(prop = 0.70) %>%
+  pull()
+```
+
+I am now ready to create a new variable, by specifying that if a row's ID is in the night list they are tagged as preferring the the night shift; if it is in the day list they prefer the day shift; and if it's neither of those they're tagged as not having a preference 
+```{r dayornight_c}
+pirates %<>% mutate(
+  dayOrNight = case_when(
+    pirateId %in% ids_to_night ~ "night_shift",
+    pirateId %in% ids_to_day ~ "day_shift",
+    TRUE ~ "either_shift"
+  )
+)
+```
+
+Another small sanity check, here counting number of shift preferences by occupation, to see if they're ordered by what I'd expect. I expect students and working to be mostly night shift, and retired to be mostly day shift.
+```{r dayornight_sanity_check}
+pirates %>%
+  group_by(Occupation, dayOrNight) %>%
+  count()
+```
+
+For the satisfaction rating column, I want to randomly assign a satisfaction rating to each row that is ostensibly given to them by their crew. I want less students to get very high ratings compared to non-students, so I am starting by choosing random 65% of students' IDs.
+```{r ids_to_high_sat_students}
+ids_to_high_sat_students <-
+  pirates %>%
+  filter(Occupation == "Student") %>%
+  select(pirateId) %>%
+  slice_sample(prop = 0.65) %>% 
+  pull()
+```
+and 75% of non-student IDs.
+```{r ids_to_high_sat_not_students}
+ids_to_high_sat_not_students <-
+  pirates %>%
+  filter(Occupation != "Student") %>%
+  select(pirateId) %>%
+  slice_sample(prop = 0.75) %>% 
+  pull()
+```
+I am next calculating the length of the vector that is 65% of students, which is really just the length of the vector of the random students' IDs.
+```{r ids_to_high_sat_students_len}
+ids_to_high_sat_students_len <- 
+  length(ids_to_high_sat_students)
+```
+I also want to calculate the length of the remaining 35% of students, which is the length of all students minus the above calculated number.
+```{r ids_to_low_sat_students_len}
+ids_to_low_sat_students_len <-
+  nrow(pirates %>% filter(Occupation == "Student")) -
+  ids_to_high_sat_students_len
+```
+We now do the same for the non-students, which means that we are looking for the length of the 75% non-students vector.
+```{r ids_to_high_sat_notstudents_len}
+ids_to_high_sat_notstudents_len <-
+  length(ids_to_high_sat_not_students)
+```
+and also the length of all non-students minus the above vector to get the length of the remaining 25%.
+```{r ids_to_low_sat_notstudents_len}
+ids_to_low_sat_notstudents_len <-
+  nrow(pirates %>% filter(Occupation != "Student")) -
+  ids_to_high_sat_notstudents_len
+```
+I then create 2 sequences: one that has all the integers between 85 and 100, and the second that has the integers between 0 and 84.
+```{r seqs_hl}
+seq_h <- seq(85, 100, by = 1)
+seq_l <- seq(0, 84, by = 1)
+```
+
+To create the actual satisfaction ratings, I create four dataframes that I eventually bind vertically, gluing the rows on top of each other. For the first dataframe I start with a vector where I randomly sample the high ratings sequence (i.e. 85 to 100) for the length of 65% of students, then putting it in a dataframe with the associated IDs. I rename the columns so that when I eventully join this to the original dataframe it will be easy to do.
+```{r df_high_sat_students}
+crewSatisfactionAvg <-
+  sample(seq_h, size = ids_to_high_sat_students_len, replace = TRUE)
+
+pirateId <- 
+  ids_to_high_sat_students
+
+df_high_sat_students <- 
+  data.frame(pirateId, crewSatisfactionAvg)
+```
+for the second dataframe I randomly sample the low ratings sequence (i.e. 0 to 84) for the
+length of 35% of the remaining students, then create the dataframe with IDs that do not have a student occupation and are not in the 65% IDs.
+```{r df_low_sat_students}
+crewSatisfactionAvg <-
+  sample(seq_l, size = ids_to_low_sat_students_len, replace = TRUE)
+
+pirateId <-
+  which(pirates$Occupation == "Student" &
+          !pirates$pirateId %in% ids_to_high_sat_students)
+
+df_low_sat_students <- data.frame(pirateId, crewSatisfactionAvg)
+```
+Similarly, I am sampling the high ratings sequence for the length of 75% of non-students, and then createing the dataframe with their IDs.
+```{r df_high_sat_notstudents}
+crewSatisfactionAvg <-
+  sample(seq_h, size = ids_to_high_sat_notstudents_len, replace = TRUE)
+
+pirateId <- ids_to_high_sat_not_students
+
+df_high_sat_notstudents <- data.frame(pirateId, crewSatisfactionAvg)
+```
+I now sample the low ratings sequence for the length of the remaining 25% of non-students, then make the dataframe with the non-students, non-75% IDs.
+```{r df_low_sat_notstudents}
+crewSatisfactionAvg <-
+  sample(seq_l, size = ids_to_low_sat_notstudents_len, replace = TRUE)
+
+pirateId <-
+  which(
+    pirates$Occupation != "Student" &
+      !pirates$pirateId %in% ids_to_high_sat_not_students
+  )
+
+df_low_sat_notstudents <- data.frame(pirateId, crewSatisfactionAvg)
+```
+The next step is to bind the dataframes vertically. That is, we are stacking the rows on top of each other, so we are binding the rows together.
+```{r rbind_satisfactions}
+df_crewSatisfactionAvg <- rbind(
+  df_high_sat_students,
+  df_low_sat_students,
+  df_high_sat_notstudents,
+  df_low_sat_notstudents
+)
+```
+
+As a sanity check I am choosing the IDs in the original pirates dataframe that are NOT in the crew satisfaction dataframe, and counting them. Since I should have used all the IDs, this should be 0.
+```{r satratings_sanity_check}
+pirates %>% filter(!pirateId %in% df_crewSatisfactionAvg$pirateId) %>% count()
+```
+I am also choosing the IDs that are shared between the dataframes, and counting them; since this should be all of them I expect it to be 30k.
+```{r satratings_sanity_check2}
+pirates %>% filter(pirateId %in% df_crewSatisfactionAvg$pirateId) %>% count()
+```
+
+As I passed my sanity check I'm joining the crew satisfaction dataframe to the pirates one by the ID, and renaming the joined dataframe pirates.
+```{r satrating_c}
+pirates <-
+  inner_join(pirates, df_crewSatisfactionAvg, by = "pirateId")
+```
+
+I will now do an additional sanity check, as I want to make sure that the proportions of satisfaction ratings vary across all the occupations. This is easy to do by plotting.
+The plots are identical, with the exception of the scales = "free" parameter, which lets the axes of the different plots vary so it's easier to visually compare apples to apples, and will only be in the left plot. I am plotting the satisfaction rating by occupation. The rating goes on the x-axis, and the occupation will each be a separate plot, so it goes in facets. I am using grid.arrange to bind the two plots together, and since I want them next to each other, I specify that the number of columns that I want is 2.
+```{r satratings_sanity_check3}
+gridExtra::grid.arrange((
+  ggplot(data = (
+    pirates %>% select(Occupation, crewSatisfactionAvg)
+  ), aes(pirates$crewSatisfactionAvg)) +
+    geom_histogram() +
+    facet_grid("Occupation", scales = "free")
+),
+ggplot(data = (
+  pirates %>% select(Occupation, crewSatisfactionAvg)
+), aes(pirates$crewSatisfactionAvg)) +
+  geom_histogram() +
+  facet_grid("Occupation"),
+ncol = 2
+)
+```
+and we can also eyeball descriptive statistics
+```{r satratings_sanity_check4}
+describeBy(pirates %>% select(Occupation, crewSatisfactionAvg), group = "Occupation")
+```
+
+For my state variable I want a column telling me which state the pirate hailed from. I searched the internet for the state names, and then copy and pasted them into a string.
+```{r state_name}
+states <- "Alabama	AL
+Alaska	AK
+Arizona	AZ
+Arkansas	AR
+California	CA
+Colorado	CO
+Connecticut	CT
+Delaware	DE
+Florida	FL
+Georgia	GA
+Hawaii	HI
+Idaho	ID
+Illinois	IL
+Indiana	IN
+Iowa	IA
+Kansas	KS
+Kentucky	KY
+Louisiana	LA
+Maine	ME
+Maryland	MD
+Massachusetts	MA
+Michigan	MI
+Minnesota	MN
+Mississippi	MS
+Missouri	MO
+Montana	MT
+Nebraska	NE
+Nevada	NV
+New Hampshire	NH
+New Jersey	NJ
+New Mexico	NM
+New York	NY
+North Carolina	NC
+North Dakota	ND
+Ohio	OH
+Oklahoma	OK
+Oregon	OR
+Pennsylvania	PA
+Rhode Island	RI
+South Carolina	SC
+South Dakota	SD
+Tennessee	TN
+Texas	TX
+Utah	UT
+Vermont	VT
+Virginia	VA
+Washington	WA
+West Virginia	WV
+Wisconsin	WI
+Wyoming	WY
+District of Columbia	DC"
+```
+
+I next replaced the \r \t \n in the states string with a space, and then took that output and added a comma before and after wherever I had two capital letters in a row (in effect subbing that for a comma, first capital letter, second capital letter, comma).
+```{r states_clean1}
+states_str_cleaned <-
+  gsub("([A-Z])([A-Z])",
+       ",\\1\\2,", #adding commas before and after those two pattern matching
+       #things we found
+       (gsub("[\r\n\t]",
+             " ",
+             states)))
+```
+
+I will also strip spaces before and after commas.
+```{r states_clean2}
+states_str_cleaned <-
+  gsub(", ",
+       ",",
+       (gsub(" ,",
+             ",",
+             states_str_cleaned)))
+```
+
+I now need to split the string on the commas, and save it as a list. The split saves all the elements in a single list, so to access each bit to be saved in a list as individual elements we need to use double square brackets to select a single bit as a single element.
+```{r states_split_list}
+#https://rpubs.com/Mentors_Ubiqum/Append_List
+states_list <-
+  as.list(strsplit(states_str_cleaned, split = ",")[[1]])
+```
+
+Finally, I am making the list all lowercase, and adding to it four, random, non-states, to make our data a little messy.
+```{r states_lower_messy}
+states_list <-
+  str_to_lower(append(states_list, c("HK", 3, "U.S.A", "Canada")))
+```
+
+Eyeballing the list.
+```{r states_eyeball}
+states_list
+```
+
+I am creating the states column by sampling the list I created. I do, however, want to make sure that I have way more states than non-states. Therefore, in the set the prob parameter to pick the first 102 list elements (50 states + dc + district of columbia) at an equal probability, and the last four elements--which are the not states--to be to also be picked at an equal probability to each other, but only a fraction of the likelihood compared to the states.
+```{r state_c}
+pirates %<>%
+  mutate(State = sample(
+    states_list,
+    size = 30000,
+    replace = TRUE,
+    prob = c(rep(1, 102), rep(0.007, 4))
+  ))
+```
+
+For my sanity check I'm ensuring that the four non-states were picked much less than the states
+```{r state_sanity_check}
+pirates %>% group_by(State) %>% summarize(n_state = n()) %>% arrange(n_state)
+```
+
+For my final variable I want to create a variable of whether the person had a crew member who died. I want most people to not have a dead crewmember. Having one will be indicated with 1, and not having one will be indicated with a 0. Therefor, I am creating a column with random 0s or 1s that will be the length of the dataframe, but the 0 will be 20 times more likely to get picked than the 1.
+```{r dead_c}
+pirates$crewmemberDied <-
+  sample(c(0, 1),
+         nrow(pirates),
+         replace = TRUE,
+         prob = c(20, 1))
+```
+
+The dead crewmember sanity check entails grouping by the variable, and then counting how many rows we have per category.
+```{r dead_sanity_check}
+pirates %>% group_by(crewmemberDied) %>% summarize(n_crewmemberDied = n()) %>% arrange(n_crewmemberDied)
+```
+
+Since I want to have a article on wrangling these data, I do want them to be a little messy. One way to do that is to mess up the data by duplicating ID 20,000 four times at the end of the dataframe, and then making: 
+1) ID 30,001's mission 1 date a month later
+2) ID 30,002's mission 1 date NA
+3) ID 30,003's last mission 1 date a month later
+4) ID 30,004's crew 50
+```{r duplicates}
+pirates[30001:30004,] <- pirates[20000,]
+
+pirates$Mission1[30001] <- pirates$Mission1[30001] + 30
+pirates$Mission1[30002] <- NA
+pirates$missionLast[30003] <- pirates$missionLast[30003] + 30
+pirates$Crew[30004] <- 50
+```
+
+Eyeballing the duplicated and modified rows to make sure it did what we
+expected as a sanity check
+```{r duplicating_rows_sanity_check}
+pirates[30001:30004, ]
+```
+
+Another way to mess up the data is by adding NAs. Here I am selecting random IDs for each column to convert to NA.
+```{r na_ids_select}
+ids_crewmemberDied_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.003) %>% pull()
+ids_Mission1_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.01) %>% pull()
+ids_missionLast_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.01) %>% pull()
+ids_Crew_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.02) %>% pull()
+ids_missionCount_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.01) %>% pull()
+ids_missionHours_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.02) %>% pull()
+ids_pirateLevel_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.04) %>% pull()
+ids_age_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.015) %>% pull()
+ids_Occupation_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.07) %>% pull()
+ids_dayOrNight_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.1) %>% pull()
+ids_crewSatisfactionAvg_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.06) %>% pull()
+ids_state_na <-
+  pirates %>% select(pirateId) %>% slice_sample(prop = 0.023) %>% pull()
+```
+
+For each column in the dataframe, if the IDs are in the randomly selected IDs above, we convert that column value to NA; otherwise we leave it as the value in that column.
+```{r instert_nas}
+pirates %<>%
+  mutate(
+    crewmemberDied = ifelse(pirateId %in% ids_crewmemberDied_na , NA, crewmemberDied),
+    Mission1 = ifelse(pirateId %in% ids_Mission1_na, NA, Mission1),
+    missionLast = ifelse(pirateId %in% ids_missionLast_na, NA, missionLast),
+    Crew = ifelse(pirateId %in% ids_Crew_na, NA, Crew),
+    missionCount = ifelse(pirateId %in% ids_missionCount_na, NA, missionCount),
+    missionHours = ifelse(pirateId %in% ids_missionHours_na, NA, missionHours),
+    pirateLevel = ifelse(pirateId %in% ids_pirateLevel_na, NA, pirateLevel),
+    age = ifelse(pirateId %in% ids_age_na, NA, age),
+    Occupation = ifelse(pirateId %in% ids_Occupation_na, NA, Occupation),
+    dayOrNight = ifelse(pirateId %in% ids_dayOrNight_na, NA, dayOrNight),
+    crewSatisfactionAvg = ifelse(
+      pirateId %in% ids_crewSatisfactionAvg_na,
+      NA,
+      crewSatisfactionAvg
+    ),
+    State = ifelse(pirateId %in% ids_state_na, NA, State)
+  )
+```
+
+The sanity check is plotting the missing values by column.
+```{r plot_nas}
+plot_missing(pirates)
+```
+
+Finally, we save the data as a CSV, then read it in a looking at it for our sanity check.
+```{r csv_write}
+write_csv(pirates, "~/Documents/data_science/data_science_practice/R/pirates_clustering/df_pirate.csv")
+df_pirate <- read_csv("~/Documents/data_science/data_science_practice/R/pirates_clustering/df_pirate.csv")
+head(df_pirate)
+```
+
+
+
