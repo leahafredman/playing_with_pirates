@@ -15,34 +15,33 @@ knitr::opts_chunk$set(echo = TRUE)
 title: "R Notebook"
 output: html_notebook
 ---
-I want to create a dataset with attributes of fictional pirates. 
+In this article I want to create a dataset with attributes of fictional pirates. Note that I am aware that this article has a ridiculous premise, but I did it because while producing this type of content (that is, demonstrating that I can do data science, not data science with silly stories) while job hunting is important for visibility (plus I remember it so much better after writing about it), at some point it is more fun if I let some silliness in; and if I can add some fun to my life while job hunting during a pandemic, I am going to seize opportunity.
 
-Note that I am aware that this article has a ridiculous premise, and I did so because producing this type of content (that is, demonstrating that I can do data science, not data science with silly stories) while job hunting is important for visibility (plus I remember it so much better after writing about it), but at some point it is more fun if I let some silliness in; and if I can add some fun to my life while job hunting during a pandemic I am going to seize opportunity. 
+It’s also high time (or is it high tide?) someone wrote a data science blog post filled with terrible pirate puns and R code. Please note that these data are fictional, and do not come from any real company. I think of this article both as a portfolio and instructional piece, and therefore I think that the validity of these data are far less important compared to the code, and what I show that we can learn from potential findings (actionable insights FTW!).
 
-It's also high time (or is it high tide?) someone wrote a data science blog post filled with terrible pirate puns and R code. Please note that these data are fictional, and do not come from any real company. I think of this article both as a portfolio and instructional piece, and therefor I think that the validity of these data are far less important compared to the code, and what I show that we can learn from potential findings.
-
-The scenario I'll be working with for all of the parts of this exercise is as follows: Imagine you discovered the true negative correlation between number of pirates in the world, and global warming. Also imagine that you are unfamiliar with the idea that while correlation might be causation, it might not be. If that was the case, I would recommend you watch the short talk I gave on the topic at a recent data science conference, because we would not want you coming to the erroneous conclusion that you can fight global warming by getting volunteers to take up piracy.
+The scenario I’ll be working with for all of the parts of this exercise is as follows: Imagine that you discovered the true negative correlation between number of pirates in the world, and global warming. Also imagine that you are unfamiliar with the idea that while correlation might be causation, it might not be. If that was the case, I would recommend you watch the short talk I gave on the topic at a recent data science conference, because we would not want you coming to the erroneous conclusion that you can fight global warming by getting volunteers to take up piracy.
 
 Now imagine that you did not watch my talk, came to the erroneous conclusion, and have started a non-profit promoting piracy for volunteers. Unfortunately (for you; the rest of us will find your pirate woos quite lucky), despite training your pirate volunteers, you are finding that churn is a real problem, and you would like to understand it better, so that you can create interventions to increase pirate retention. To clarify, you are focusing your investigation on the pirates that quit out of their own volition, and not those who died in battle.
 
-You only recently understood the value of continuous listening, and ongoing feedback from your volunteers, but have not yet had the chance to implement such a program within your organization. You also do not have any qualitative data, which is unfortunate, and it is often what we need to understand WHY people are doing what they are doing; quantitative research tends to be much better at explaining WHAT people are doing. Since you need some actionable insights despite not have the luxury of collecting more data, you turn to the data that you do have, and to your favorite pirate coding language: R.
+You only recently understood the value of continuous listening, and ongoing feedback from your volunteers, but have not yet had the chance to implement such a program within your organization. You also do not have any qualitative data, which is unfortunate, and it is often what we need to understand WHY people are doing what they are doing; quantitative research tends to be much better at explaining WHAT people are doing. Since you need some actionable insights despite not have the luxury of collecting more data, you turn to the data that you do have, and to your favorite pirate coding language: Argh! Um, I mean R.
 
 Since this is the first part in the series, we will first create the data that we will analyze in subsequent parts. We want to end up with 13 columns:
-1) First mission date
-2) Last mission date
-3) Crew number (which is assigned at the start of the volunteering)
-4) Pirate ID
-5) Mission count of how many missions were completed
-6) The level the pirate reached, which is based on how many missions were completed
-7) Age
-8) Occupation, with options being student, working, retired, or other
-9) Whether there is a preference for day missions, night missions, or both
-10) A satisfaction rating, which is given by other crew members post mission, and then averaged
-11) What US state the pirate hails from
-12) Whether any of the pirate's crew members died during a mission
 
+    First mission date
+    Last mission date
+    Crew number (which is assigned at the start of the volunteering)
+    Pirate ID
+    Mission count of how many missions were completed
+    Total number of mission hours completed
+    The level the pirate reached, which is based on how many missions were completed
+    Age
+    Occupation, with options being student, working, retired, or other
+    Whether there is a preference for day missions, night missions, or both
+    A satisfaction rating, which is given by other crew members post mission, and then averaged
+    What US state the pirate hails from
+    Whether any of the pirate’s crew members died during a mission
 
-We need to start by loading the libraries we'll be using during this exercise 
+We need to start by loading the libraries we’ll be using during this exercise.
 ```{r loading_libraries, results="hide", warning=FALSE, message=FALSE}
 library(tidyverse)
 library(lubridate)
@@ -197,7 +196,7 @@ pirates %<>%
            ))
 ```
 
-I do want to mess up the accuracy of pirateLevel a little bit, so that we can investigate it in the data wrangling blog post. The first step to doing this is creating a vector that is 0 91% of the time, and 1 9% of the time
+I do want to mess up the accuracy of pirateLevel a little bit, so that we can investigate it in the data wrangling blog post. The first step to doing this is creating a vector that is 0 96% of the time, and 1 the remaining 4% of the time.
 ```{r lvl_edit_v}
 change_lvl <-
   sample(c(0, 1),
@@ -342,7 +341,7 @@ ids_to_day <-
   pull()
 ```
 
-I am now ready to create a new variable, by specifying that if a row's ID is in the night list they are tagged as preferring the the night shift; if it is in the day list they prefer the day shift; and if it's neither of those they're tagged as not having a preference 
+I am now ready to create a new variable, by specifying that if a row's ID is in the night list they are tagged as preferring the the night shift; if it is in the day list they prefer the day shift; and if it's neither of those they're tagged as not having a preference. 
 ```{r dayornight_c}
 pirates %<>% mutate(
   dayOrNight = case_when(
@@ -671,10 +670,6 @@ ids_state_na <-
   pirates %>% select(pirateId) %>% slice_sample(prop = 0.023) %>% pull()
 ```
 
-```{r instert_nas_dates}
-pirates$Mission1[c(which(pirates$pirateId %in% ids_Mission1_na))] <- NA
-pirates$missionLast[c(which(pirates$pirateId %in% ids_missionLast_na))] <- NA
-```
 For each column in the dataframe, if the IDs are in the randomly selected IDs above, we convert that column value to NA; otherwise we leave it as the value in that column.
 ```{r instert_nas_notdates}
 pirates %<>%
@@ -694,6 +689,14 @@ pirates %<>%
     ),
     State = ifelse(pirateId %in% ids_state_na, NA, State)
   )
+```
+
+You may have noticed that the above code does not include the date columns. What I learned in this process is that using the ifelse function I can change your input class, and if you do this with a column full of dates, you will end up with a column that has been completely altered. However, you can use data.table::fifelse or if_else instead, which will preserve your date type, while completing the same transformation as ifelse; the two even use the same type of syntax as ifelse.
+
+The problem is that while it is useful for the ifelse to force the datatype to be the same across the input and output, it then makes it impossible to convert one datatype into another, including NA. What I ended up using as a workaround, was assigning NA after selecting what I wanted to convert using the square bracket notation. For my use case I wanted to convert a bunch of dates to NA that were associated with IDs in a list, so I found the indices in my dataframe of the people whose ID was in that list using the which function, and then selected the dates associated with those indices, and just assigned NA to them like so:
+```{r instert_nas_dates}
+pirates$Mission1[c(which(pirates$pirateId %in% ids_Mission1_na))] <- NA
+pirates$missionLast[c(which(pirates$pirateId %in% ids_missionLast_na))] <- NA
 ```
 
 The sanity check is plotting the missing values by column.
