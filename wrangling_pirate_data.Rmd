@@ -526,7 +526,7 @@ psych::describe((df_pirate_features %>%
 
 ```
 
-There seems be an infinity issue going on in mission_hours_per_week and hours_per_mission. Since that feature was a engineered by dividing one number into another, and the numerator could have been 0, I'm guessing this is where the issue arose, and therefore the infinity values should just be automatically to 0. Therefore, I want to examine whether the max values of those features is inf because the numerator--mission_count and the difference in days between the first and last mission--is 0. I can do this by filtering out all instances where hours_per_mission is inf but mission_count isn't 0, and counting those, as well as looking at whether infinity values of mission_hours_per_week occur when the active weeks, calculated as the time difference between the first and last mission dates, is different than 0, and count those
+There seems be an infinity issue going on in mission_hours_per_week and hours_per_mission. Since that feature was a engineered by dividing one number into another, and the numerator could have been 0, I'm guessing this is where the issue arose, and therefore the infinity values should just be automatically to 0. Therefore, I want to examine whether the max values of those features is inf because the numerator--mission_count and the difference in days between the first and last mission--is 0. I can do this by filtering out all instances where hours_per_mission is inf but mission_count isn't 0, and counting those, as well as looking at whether infinity values of mission_hours_per_week occur when the active weeks, calculated as the time difference between the first and last mission dates, is different than 0, and count those. We see from the output that both those cases are 0, meaning in both cases the infinity is caused by dividing one number by 0.
 ```{r inf_mean_conv}
 df_pirate_features %>%
  dplyr::select(mission_count, hours_per_mission) %>%
@@ -535,30 +535,28 @@ df_pirate_features %>%
   count()
 
 df_pirate_features %>%
- dplyr::select(active_days, active_weeks, minutes_per_active_day, hours_per_week) %>%
- dplyr::filter((is.infinite(minutes_per_active_day) & 
-            active_days != 0)) %>%
+  mutate(mean_hours_per_active_week = as.double(round(
+      difftime(mission_last, mission_1, units = "weeks"), digits = 3
+    ))) %>%
+ dplyr::select(mean_hours_per_active_week, mission_hours_per_week) %>%
+ dplyr::filter((is.infinite(mission_hours_per_week) & 
+            mean_hours_per_active_week != 0)) %>%
   count()
 
 ```
 
-The same as above, but 
-looking whether inf minutes_per_active_day and inf hours_per_week respectively co-occur
-with active_days and active_weeks that are different than 0, and we see that not
-```{r}
+I actually want to quickly confirm that those two column are the only ones with infinity values, by writing a for-loop that goes column name by column name, and: 
+1) applies to each column an anonymous function, where it examines whether the column has any infinite values. If the column does have an infinite value the function's output is TRUE; otherwise it becomes a FALSE
+2) if the output equals TRUE it prints out that the column has infinite values
+3) skips printing anything if the val equals FALSE
+It looks like only the two expected columns have infinite values.
 
-```
-
-I actually want to quickly confirm that those three column are the only ones with
-inf values, and we see that's the case
 ```{r}
 #looking at each column name
-for(c in colnames(df_ctl)){
-  #saving the boolean of whether there are infinite values in that column
-  val = length(which(sapply(df_ctl[{c}], function(x) any(is.infinite((x)))))) > 0
+for(c in colnames(df_pirate_features)){
   #If it's true and there are inf value we print out that column's name
   ifelse(
-    val == TRUE, 
+    sapply(df_pirate_features[{c}], function(x) any(is.infinite(x))) == TRUE, 
     print(glue::glue("Column {c} has infinite values")), 
     next
     )
@@ -566,64 +564,43 @@ for(c in colnames(df_ctl)){
 
 ```
 
-So I'll change the mean_convo_len_min, minutes_per_active_day, and hours_per_week
-to 0 where it's inf
-Rerunning the code above shows this worked
+Given what we know about why the infinity values occurred, I think it makes sense to convert them into 0s. To do this I use modify_if to limit myself to the numeric columns, and then apply an anonymous function to them where I search for infinite values, and if I find them I convert them to 0, otherwise I leave them as-is.
+As a sanity, similar to above, I utilize a for-loop to apply the function examining whether there are any infinite values in each of the columns, and see that they are all false, and that there are no more infinite values.
 ```{r}
 #modify is like map but instead of returning a list it returns the original data
 #ource type. It was messing with the datetimes tho, which is why I chose modify_if
-df_ctl_inf <-
-  df_ctl %>% 
+df_pirate_inf <-
+  df_pirate_features %>% 
   modify_if(is.numeric, 
             function(x) ifelse(is.infinite(x), 0, x))
 
-View(df_ctl_inf)
+for(c in colnames(df_pirate_inf)){
+  print(sapply(df_pirate_inf[{c}], function(x) any(is.infinite(x))))
+}
 ```
 
+One quick last check I have learned the hard way to do is to confirm that all columns have variance, and that they're not just a single value. I think it will be easier though if I first dummy code my categorical variables. To do so we take the variable (e.g. a variable is "likes cats", with the levels "all cats", "some cats", "no cats") with n levels, and then create n columns--n new variables--one per level (e.g. three new variables--called "likes all cats", "likes no cats", "likes some cats"), and give that row (which represents a person) a 1 if it's true about them, and 0 if it isn't. We could do this manually with case_when, but it is much easier to do it with the dummy_cols function from the fastDummies library. This keeps the original categorical column, and just tacks the dummy coded ones on at the end. Before dummy coding we first drop all the levels of the categorical values that have no cases. We can then examine how many levels each column has, and pull the ones that only have one level, which means that they have no variance. We can do this by creating an empty vector, and then running through the column names, counting how many unique values there were, and then adding that column name to the list if there are fewer than 2 unique values, and skipping if there are more than that. Spoiler alert, dropping the extra factors above makes it so that all of our variables have variability, yay.
 ```{r}
+library(fastDummies)
+df_pirate_dum <- 
+  dummy_cols(droplevels(df_pirate_inf))
 
-
+list1 <- c()
+for(x in colnames(df_pirate_dum)){
+  if(nrow(unique(df_pirate_dum[x])) < 2){
+    list1 <- c(list1, x)
+  }
+  else
+    next
+}
+list1
 ```
 
-
-```{r}
-
-
-```
-
-
-```{r}
-
-
-```
-
-
-```{r}
-
-
-```
-
-
-```{r}
-
-
-```
-
-
-```{r}
-
-
-```
-
-Looking at NAs
-NAs for the non-numeric variables don't look too high
-kinda high for occupation maybe
-
-looking as NA percentages for the columns using dataexplorer
+I want to graphically examine NA percentages for the columns using dataexplorer
 It's unfortunate that the two variables that we mentioned as possibilities for 
 important predictors/predictors we care about have the highest NAs
 ```{r}
-plot_missing(df_pirate_states) #%>% 
+plot_missing(df_pirate_inf) #%>% 
              # dplyr::filter(started_30d_or_more_ago == "more_30"))
 ```
 Mostly not too bad
@@ -640,6 +617,41 @@ plot_bar((df_pirate_states %>%
 #i forgot how ugly this was
 ```
 
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
 
 ```{r}
 
